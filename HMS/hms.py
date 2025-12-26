@@ -3,29 +3,7 @@ from tkinter import messagebox
 import sqlite3
 
 
-class Room:
-    def __init__(self, room_number, room_type, price, availability=True):
-        self.room_number = room_number
-        self.room_type = room_type  # e.g., Single, Double
-        self.price = price
-        self.availability = availability
-
-    def __repr__(self):
-        return (f"Room Number: {self.room_number}, Type: {self.room_type}, "
-                f"Price: {self.price}, Available: {'Yes' if self.availability else 'No'}")
-
-
-class Customer:
-    def __init__(self, name, contact, room_booked=None):
-        self.name = name
-        self.contact = contact
-        self.room_booked = room_booked
-
-    def __repr__(self):
-        return (f"Customer Name: {self.name}, Contact: {self.contact}, "
-                f"Room Booked: {self.room_booked.room_number if self.room_booked else 'None'}")
-
-
+# ---------------- BACKEND ---------------- #
 class HotelManagementSystem:
     def __init__(self):
         self.conn = sqlite3.connect("hotel_management.db")
@@ -33,235 +11,253 @@ class HotelManagementSystem:
         self.create_tables()
 
     def create_tables(self):
-        
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS rooms (
-                                room_number INTEGER PRIMARY KEY,
-                                room_type TEXT,
-                                price REAL,
-                                availability INTEGER)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS customers (
-                                name TEXT,
-                                contact TEXT,
-                                room_booked INTEGER,
-                                FOREIGN KEY(room_booked) REFERENCES rooms(room_number))''')
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS rooms (
+                room_number INTEGER PRIMARY KEY,
+                room_type TEXT,
+                price REAL,
+                availability INTEGER
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS customers (
+                name TEXT,
+                contact TEXT,
+                room_booked INTEGER
+            )
+        """)
         self.conn.commit()
 
     def add_room(self, room_number, room_type, price):
-        
-        self.cursor.execute("INSERT INTO rooms (room_number, room_type, price, availability) VALUES (?, ?, ?, ?)",
-                            (room_number, room_type, price, 1))
+        self.cursor.execute(
+            "INSERT INTO rooms VALUES (?, ?, ?, ?)",
+            (room_number, room_type, price, 1)
+        )
         self.conn.commit()
 
     def view_rooms(self):
-        
         self.cursor.execute("SELECT * FROM rooms")
-        rooms = self.cursor.fetchall()
-        return [Room(r[0], r[1], r[2], bool(r[3])) for r in rooms]
-
-    def check_availability(self, room_number):
-        
-        self.cursor.execute("SELECT availability FROM rooms WHERE room_number = ?", (room_number,))
-        result = self.cursor.fetchone()
-        return bool(result[0]) if result else None
+        return self.cursor.fetchall()
 
     def book_room(self, name, contact, room_number):
-        
-        if self.check_availability(room_number):
-            self.cursor.execute("UPDATE rooms SET availability = 0 WHERE room_number = ?", (room_number,))
-            self.cursor.execute("INSERT INTO customers (name, contact, room_booked) VALUES (?, ?, ?)",
-                                (name, contact, room_number))
-            self.conn.commit()
-            return True, f"Room {room_number} booked successfully for {name}!"
-        else:
-            return False, f"Room {room_number} is not available."
+        self.cursor.execute(
+            "SELECT availability FROM rooms WHERE room_number=?",
+            (room_number,)
+        )
+        row = self.cursor.fetchone()
 
-    def customer_records(self):
-        
-        self.cursor.execute("SELECT * FROM customers")
-        customers = self.cursor.fetchall()
-        return [Customer(c[0], c[1], Room(c[2], None, None)) for c in customers]
+        if not row:
+            return False, "Room does not exist"
+        if row[0] == 0:
+            return False, "Room not available"
+
+        self.cursor.execute(
+            "UPDATE rooms SET availability=0 WHERE room_number=?",
+            (room_number,)
+        )
+        self.cursor.execute(
+            "INSERT INTO customers VALUES (?, ?, ?)",
+            (name, contact, room_number)
+        )
+        self.conn.commit()
+        return True, "Room booked successfully"
 
     def checkout(self, room_number):
-        
-        self.cursor.execute("SELECT * FROM customers WHERE room_booked = ?", (room_number,))
-        customer = self.cursor.fetchone()
-        if customer:
-            self.cursor.execute("UPDATE rooms SET availability = 1 WHERE room_number = ?", (room_number,))
-            self.cursor.execute("DELETE FROM customers WHERE room_booked = ?", (room_number,))
-            self.conn.commit()
-            return True, f"Room {room_number} checked out successfully!"
-        return False, f"No customer found in Room {room_number}."
+        self.cursor.execute(
+            "SELECT * FROM customers WHERE room_booked=?",
+            (room_number,)
+        )
+        if not self.cursor.fetchone():
+            return False, "No customer found"
+
+        self.cursor.execute(
+            "DELETE FROM customers WHERE room_booked=?",
+            (room_number,)
+        )
+        self.cursor.execute(
+            "UPDATE rooms SET availability=1 WHERE room_number=?",
+            (room_number,)
+        )
+        self.conn.commit()
+        return True, "Checkout successful"
 
 
-class HotelManagementGUI:
-    def __init__(self, root, hotel):
-        self.hotel = hotel
+# ---------------- GUI ---------------- #
+class HotelGUI:
+    ADMIN_USER = "admin"
+    ADMIN_PASS = "admin321"
+
+    def __init__(self, root):
         self.root = root
         self.root.title("Hotel Management System")
-        self.root.geometry("600x400")
+        self.root.geometry("850x500")
 
-        tk.Label(self.root, text="Hotel Management System", font=("Arial", 20)).pack(pady=10)
+        self.hotel = HotelManagementSystem()
 
-        # Buttons for roles
-        tk.Button(self.root, text="Admin Panel", font=("Arial", 16), width=15, command=self.admin_panel).pack(pady=10)
-        tk.Button(self.root, text="Customer Panel", font=("Arial", 16), width=15, command=self.customer_panel).pack(pady=10)
+        tk.Label(root, text="Hotel Management System",
+                 font=("Arial", 22, "bold")).pack(pady=10)
 
-    def admin_panel(self):
-        
-        admin_win = tk.Toplevel(self.root)
-        admin_win.title("Admin Panel")
-        admin_win.geometry("700x500")
+        # Navigation bar
+        nav = tk.Frame(root)
+        nav.pack(pady=5)
 
-        tk.Label(admin_win, text="Admin Panel", font=("Arial", 20)).pack(pady=10)
+        tk.Button(nav, text="Admin Panel", width=15,
+                  command=self.show_admin_login).grid(row=0, column=0, padx=5)
+        tk.Button(nav, text="Customer Panel", width=15,
+                  command=self.show_customer).grid(row=0, column=1, padx=5)
+        tk.Button(nav, text="View Rooms", width=15,
+                  command=self.show_rooms).grid(row=0, column=2, padx=5)
 
-        # View Rooms
-        tk.Button(admin_win, text="View All Rooms", font=("Arial", 14),
-                  command=self.view_rooms).pack(pady=5)
+        self.container = tk.Frame(root)
+        self.container.pack(fill="both", expand=True)
 
-        # Add Room
-        tk.Button(admin_win, text="Add Room", font=("Arial", 14),
-                  command=self.add_room_window).pack(pady=5)
+        self.admin_login_frame()
+        self.admin_panel_frame()
+        self.customer_frame()
+        self.rooms_frame()
 
-        # Customer Records
-        tk.Button(admin_win, text="View Customer Records", font=("Arial", 14),
-                  command=self.view_customer_records).pack(pady=5)
+        self.show_rooms()
 
-    def view_rooms(self):
-        #Display all rooms
-        room_win = tk.Toplevel(self.root)
-        room_win.title("Room Details")
-        room_win.geometry("500x400")
-        tk.Label(room_win, text="Room Details", font=("Arial", 18)).pack(pady=10)
+    def clear_frames(self):
+        for widget in self.container.winfo_children():
+            widget.pack_forget()
 
-        rooms = self.hotel.view_rooms()
-        if not rooms:
-            tk.Label(room_win, text="No rooms available.", font=("Arial", 14)).pack(pady=5)
+    # ---------- ADMIN LOGIN ---------- #
+    def admin_login_frame(self):
+        self.admin_login = tk.Frame(self.container)
+
+        tk.Label(self.admin_login, text="Admin Login",
+                 font=("Arial", 18)).pack(pady=10)
+
+        tk.Label(self.admin_login, text="Username").pack()
+        self.admin_user = tk.Entry(self.admin_login)
+        self.admin_user.pack()
+
+        tk.Label(self.admin_login, text="Password").pack()
+        self.admin_pass = tk.Entry(self.admin_login, show="*")
+        self.admin_pass.pack()
+
+        tk.Button(self.admin_login, text="Login",
+                  command=self.validate_admin).pack(pady=10)
+
+    def validate_admin(self):
+        if (self.admin_user.get() == self.ADMIN_USER and
+                self.admin_pass.get() == self.ADMIN_PASS):
+            messagebox.showinfo("Success", "Admin Login Successful")
+            self.show_admin_panel()
         else:
-            for room in rooms:
-                tk.Label(room_win, text=str(room), font=("Arial", 12)).pack(pady=2)
+            messagebox.showerror("Error", "Invalid Admin Credentials")
 
-    def add_room_window(self):
-       #Open a window to add a new room
-        add_win = tk.Toplevel(self.root)
-        add_win.title("Add Room")
-        add_win.geometry("400x300")
+    def show_admin_login(self):
+        self.clear_frames()
+        self.admin_login.pack(fill="both", expand=True)
 
-        tk.Label(add_win, text="Add Room", font=("Arial", 18)).pack(pady=10)
+    # ---------- ADMIN PANEL ---------- #
+    def admin_panel_frame(self):
+        self.admin_panel = tk.Frame(self.container)
 
-        tk.Label(add_win, text="Room Number").pack()
-        room_number = tk.Entry(add_win)
-        room_number.pack()
+        tk.Label(self.admin_panel, text="Admin Panel",
+                 font=("Arial", 18)).pack(pady=10)
 
-        tk.Label(add_win, text="Room Type").pack()
-        room_type = tk.Entry(add_win)
-        room_type.pack()
+        tk.Label(self.admin_panel, text="Room Number").pack()
+        self.room_no = tk.Entry(self.admin_panel)
+        self.room_no.pack()
 
-        tk.Label(add_win, text="Price").pack()
-        price = tk.Entry(add_win)
-        price.pack()
+        tk.Label(self.admin_panel, text="Room Type").pack()
+        self.room_type = tk.Entry(self.admin_panel)
+        self.room_type.pack()
 
-        def add_room_action():
-            try:
-                self.hotel.add_room(int(room_number.get()), room_type.get(), float(price.get()))
-                messagebox.showinfo("Success", f"Room {room_number.get()} added successfully!")
-                add_win.destroy()
-            except ValueError:
-                messagebox.showerror("Error", "Invalid input. Please try again.")
+        tk.Label(self.admin_panel, text="Price").pack()
+        self.price = tk.Entry(self.admin_panel)
+        self.price.pack()
 
-        tk.Button(add_win, text="Add Room", command=add_room_action).pack(pady=10)
+        tk.Button(self.admin_panel, text="Add Room",
+                  command=self.add_room).pack(pady=10)
 
-    def view_customer_records(self):
-        #Display all customer records
-        customer_win = tk.Toplevel(self.root)
-        customer_win.title("Customer Records")
-        customer_win.geometry("500x400")
-        tk.Label(customer_win, text="Customer Records", font=("Arial", 18)).pack(pady=10)
+    def add_room(self):
+        try:
+            self.hotel.add_room(
+                int(self.room_no.get()),
+                self.room_type.get(),
+                float(self.price.get())
+            )
+            messagebox.showinfo("Success", "Room Added Successfully")
+            self.show_rooms()
+        except:
+            messagebox.showerror("Error", "Invalid Input")
 
-        customers = self.hotel.customer_records()
-        if not customers:
-            tk.Label(customer_win, text="No customer records.", font=("Arial", 14)).pack(pady=5)
-        else:
-            for customer in customers:
-                tk.Label(customer_win, text=str(customer), font=("Arial", 12)).pack(pady=2)
+    def show_admin_panel(self):
+        self.clear_frames()
+        self.admin_panel.pack(fill="both", expand=True)
 
-    def customer_panel(self):
-        #Customer panel
-        customer_win = tk.Toplevel(self.root)
-        customer_win.title("Customer Panel")
-        customer_win.geometry("700x500")
+    # ---------- CUSTOMER ---------- #
+    def customer_frame(self):
+        self.customer = tk.Frame(self.container)
 
-        tk.Label(customer_win, text="Customer Panel", font=("Arial", 20)).pack(pady=10)
+        tk.Label(self.customer, text="Customer Panel",
+                 font=("Arial", 18)).pack(pady=10)
 
-        # Book Room
-        tk.Button(customer_win, text="Book Room", font=("Arial", 14),
-                  command=self.book_room_window).pack(pady=5)
+        tk.Label(self.customer, text="Name").pack()
+        self.c_name = tk.Entry(self.customer)
+        self.c_name.pack()
 
-        # Checkout
-        tk.Button(customer_win, text="Checkout", font=("Arial", 14),
-                  command=self.checkout_window).pack(pady=5)
+        tk.Label(self.customer, text="Contact").pack()
+        self.c_contact = tk.Entry(self.customer)
+        self.c_contact.pack()
 
-    def book_room_window(self):
-        
-        book_win = tk.Toplevel(self.root)
-        book_win.title("Book Room")
-        book_win.geometry("400x300")
+        tk.Label(self.customer, text="Room Number").pack()
+        self.c_room = tk.Entry(self.customer)
+        self.c_room.pack()
 
-        tk.Label(book_win, text="Book Room", font=("Arial", 18)).pack(pady=10)
+        tk.Button(self.customer, text="Book Room",
+                  command=self.book_room).pack(pady=5)
+        tk.Button(self.customer, text="Checkout",
+                  command=self.checkout).pack(pady=5)
 
-        tk.Label(book_win, text="Name").pack()
-        name = tk.Entry(book_win)
-        name.pack()
+    def book_room(self):
+        success, msg = self.hotel.book_room(
+            self.c_name.get(),
+            self.c_contact.get(),
+            int(self.c_room.get())
+        )
+        messagebox.showinfo("Info", msg)
+        self.show_rooms()
 
-        tk.Label(book_win, text="Contact").pack()
-        contact = tk.Entry(book_win)
-        contact.pack()
+    def checkout(self):
+        success, msg = self.hotel.checkout(int(self.c_room.get()))
+        messagebox.showinfo("Info", msg)
+        self.show_rooms()
 
-        tk.Label(book_win, text="Room Number").pack()
-        room_number = tk.Entry(book_win)
-        room_number.pack()
+    def show_customer(self):
+        self.clear_frames()
+        self.customer.pack(fill="both", expand=True)
 
-        def book_room_action():
-            try:
-                success, message = self.hotel.book_room(name.get(), contact.get(), int(room_number.get()))
-                if success:
-                    messagebox.showinfo("Success", message)
-                    book_win.destroy()
-                else:
-                    messagebox.showerror("Error", message)
-            except ValueError:
-                messagebox.showerror("Error", "Invalid input. Please try again.")
+    # ---------- ROOMS ---------- #
+    def rooms_frame(self):
+        self.rooms = tk.Frame(self.container)
 
-        tk.Button(book_win, text="Book Room", command=book_room_action).pack(pady=10)
+        tk.Label(self.rooms, text="Room Details",
+                 font=("Arial", 18)).pack(pady=10)
 
-    def checkout_window(self):
-        
-        checkout_win = tk.Toplevel(self.root)
-        checkout_win.title("Checkout")
-        checkout_win.geometry("400x200")
+        self.room_list = tk.Listbox(self.rooms, width=80)
+        self.room_list.pack(pady=10)
 
-        tk.Label(checkout_win, text="Checkout", font=("Arial", 18)).pack(pady=10)
+    def show_rooms(self):
+        self.clear_frames()
+        self.room_list.delete(0, tk.END)
 
-        tk.Label(checkout_win, text="Room Number").pack()
-        room_number = tk.Entry(checkout_win)
-        room_number.pack()
+        for r in self.hotel.view_rooms():
+            status = "Available" if r[3] else "Booked"
+            self.room_list.insert(
+                tk.END,
+                f"Room {r[0]} | {r[1]} | ₹{r[2]} | {status}"
+            )
 
-        def checkout_action():
-            try:
-                success, message = self.hotel.checkout(int(room_number.get()))
-                if success:
-                    messagebox.showinfo("Success", message)
-                    checkout_win.destroy()
-                else:
-                    messagebox.showerror("Error", message)
-            except ValueError:
-                messagebox.showerror("Error", "Invalid input. Please try again.")
-
-        tk.Button(checkout_win, text="Checkout", command=checkout_action).pack(pady=10)
+        self.rooms.pack(fill="both", expand=True)
 
 
-# Run the GUI application
+# ---------------- RUN ---------------- #
 if __name__ == "__main__":
-    hotel = HotelManagementSystem()
     root = tk.Tk()
-    app = HotelManagementGUI(root, hotel)
+    HotelGUI(root)
     root.mainloop()
