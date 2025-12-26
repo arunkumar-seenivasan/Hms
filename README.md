@@ -24,5 +24,5 @@ The Hotel Management System is a desktop application developed using Python, Tki
 * View room availability
 * Automatic update of room status
   
-<img width="1366" height="768" alt="image" src="https://github.com/user-attachments/assets/1948b42f-365a-495c-9fb1-09a6399dce95" />
+<img width="1366" height="701" alt="Screenshot (45)" src="https://github.com/user-attachments/assets/406924ac-a7ba-4585-a5ed-fa860d34a9bf" />
 
